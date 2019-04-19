@@ -5,10 +5,14 @@
 
 #include "Connection.h"
 #include "SendMessage.h"
+#include "ThingspeakComm.h"
+
+ADC_MODE(ADC_VCC); // To read voltage level
 
 static const char *SSID = "AirVandalGuest";		// SSID of your WiFi Network.
 static const char *Password = "GoVandals!";		// Password of your WiFi Network.
 static const char *Server = "mail.smtp2go.com"; // The SMTP Server
+static const char *APIKey = "3";				// Thingspeak API Key
 
 // Base64 encoded credentials
 static const char *Username = "Y29sb25lbHNjaGFmZXI=";
@@ -16,11 +20,11 @@ static const char *UserPassword = "QWJjXjIxMF8xMjA=";
 
 static const int NeoPixelPin = 4;
 static const int SwitchBlueLed = 5;   // Pin for the
-static const int ErrorLed = 2;		  // Will shine if there is any error with connection or sending
-static const int ConnectionLed = 0;   // Will stay lit as long as the device is connected to wifi
-static const int MessageSentLed = 1;  // Will shine if the message was sent
+static const int StatusLed = 2;		  // Will shine if there is any error with connection or sending
 static const int ShineInterval = 400; // ms that a led will be lit for
-static const int LedCount = 3;
+static const int LedCount = 1;		  // Number of visible led units
+static const int ChannelNumber = 2;   // Thingspeak Channel number
+static const int SleepTime = 1800;	// 30 min
 
 static Adafruit_NeoPixel Pixels = Adafruit_NeoPixel(LedCount, NeoPixelPin, NEO_RGB + NEO_KHZ800);
 
@@ -32,23 +36,21 @@ static const int Yellow = Pixels.Color(255, 255, 0);
 
 static bool Connect(Connection *Connector, WiFiClient *Client);
 static bool SendMessage(Connection *Connector, WiFiClient *Client);
-static bool InitPower();
-static bool InitThingspeakComm();
+static bool IsWaterLow() { return false; }	// Temp function
+static int GetWaterLevel() { return 100; }	// Temp function
+static bool CheckMoisture() { return false; } // Temp Function
 //static bool
 
 void setup()
 {
 	// Local variables
 	WiFiClient Client;
-	bool Set = true;
 
-	// initialize the pins and pixels
-	// Init the blue switch led
-	pinMode(SwitchBlueLed, INPUT);
-	// Init the neopixel leds
-	Pixels.begin();
 	// Init our connection class
 	Connection Connector(SSID, Password, &Client, 2525);
+	// Init our thingspeak class
+	ThingspeakComm TSChannel(&Connector, ChannelNumber, APIKey);
+	TSChannel.Initialize();
 
 	// Connect to wifi on startup
 	if (!Connect(&Connector, &Client))
@@ -64,65 +66,42 @@ void setup()
 	// Main process loop
 	while (true)
 	{
-		// Clear the leds if they are set
-		if (Set)
-		{
-			// Clear any lights present in the leds
-			for (size_t i = 1; i < LedCount; i++)
-			{
-				Pixels.setPixelColor(i, Clear);
-				Pixels.show();
-			}
-			Set = false;
-		}
 
-		if (WiFi.status() != WL_CONNECTED)
-		{
-			Serial.println("Lost connection, retrying");
-			Pixels.setPixelColor(ConnectionLed, Clear);
-			Pixels.show();
-			// Connect to wifi on startup
-			if (!Connect(&Connector, &Client))
-			{
-				Serial.println("\nCould not connect to WiFi");
-				return;
-			}
-			else
-			{
-				Serial.println("\nConnected to WiFi");
-			}
-		}
-
-		// If the switch was read as high,
-		// then we proceed to send a message
-		if (digitalRead(SwitchBlueLed) == HIGH)
+		// Check current water level
+		// 		If it is low, then send an email notif
+		if (IsWaterLow())
 		{
 			Serial.println("Attempting To Send a Message...");
-
-			// Flash send message yello
-			Pixels.setPixelColor(MessageSentLed, Yellow);
-			Pixels.show();
-			delay(150);
-			Pixels.setPixelColor(MessageSentLed, Clear);
-			Pixels.show();
-
 			if (!SendMessage(&Connector, &Client))
 				Serial.println("Failed To Send Message");
 			else
 				Serial.println("Sent Message");
 
 			delay(500);
-			Set = true;
 		}
-		delay(50);
+
+		// Store the recently read water level into thingspeak
+		TSChannel.Write(1, GetWaterLevel());
+
+		// Get the battery voltage,
+		// Can also put to thingspeak, but the channel
+		// and the lambda function are not set up for it
+		double battVolt = ESP.getVcc();
+		Serial.println("Battery voltage is:");
+		Serial.println(battVolt);
+
+		// Check moisture level
+		if (CheckMoisture())
+		{
+			// Water device
+		}
+
+		// Otherwise sleep for X Seconds
+		ESP.deepSleep(SleepTime * 1000000);
 	}
 }
 
 void loop()
-{
-}
-
-static bool InitModules()
 {
 }
 
@@ -133,7 +112,7 @@ bool Connect(Connection *Connector, WiFiClient *Client)
 	{
 		Serial.println("Could not connect to WiFi");
 		// Red upon failure
-		Pixels.setPixelColor(ErrorLed, Red);
+		Pixels.setPixelColor(StatusLed, Red);
 		Pixels.show();
 		return false;
 	}
@@ -141,7 +120,7 @@ bool Connect(Connection *Connector, WiFiClient *Client)
 	{
 		//Serial.printf("Connected to WiFi");
 		// Will display a blue light when connected
-		Pixels.setPixelColor(ConnectionLed, Blue);
+		Pixels.setPixelColor(StatusLed, Blue);
 		Pixels.show();
 	}
 	return true;
@@ -153,7 +132,7 @@ static bool SendMessage(Connection *Connector, WiFiClient *Client)
 	if (!Connector->ConnectToHost(Server))
 	{
 		Serial.println("Could not connect to Server");
-		Pixels.setPixelColor(ErrorLed, Red);
+		Pixels.setPixelColor(StatusLed, Red);
 		Pixels.show();
 		return false;
 	}
@@ -176,7 +155,7 @@ static bool SendMessage(Connection *Connector, WiFiClient *Client)
 	if (!Sender.Login(Username, UserPassword))
 	{
 		//Serial.println("Could not log into Server");
-		Pixels.setPixelColor(ErrorLed, Red);
+		Pixels.setPixelColor(StatusLed, Red);
 		Pixels.show();
 		return false;
 	}
@@ -185,11 +164,11 @@ static bool SendMessage(Connection *Connector, WiFiClient *Client)
 		//Serial.printf("Logged into Server");
 	}
 
-	if (!Sender.Send("eightytwosixtysixtest@gmail.com", "test@gmail.com", Message))
+	if (!Sender.Send("eightytwosixtysixtest@gmail.com", "colonelschafer@gmail.com", Message))
 	{
 		//Serial.println("Could not send message");
 		// Will show a red light if message failed
-		Pixels.setPixelColor(ErrorLed, Red);
+		Pixels.setPixelColor(StatusLed, Red);
 		Pixels.show();
 		return false;
 	}
@@ -197,7 +176,7 @@ static bool SendMessage(Connection *Connector, WiFiClient *Client)
 	{
 		//Serial.printf("Sent the message");
 		// will show a green light if it suceeded
-		Pixels.setPixelColor(MessageSentLed, Green);
+		Pixels.setPixelColor(StatusLed, Green);
 		Pixels.show();
 	}
 
