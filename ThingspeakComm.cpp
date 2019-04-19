@@ -2,6 +2,7 @@
 #include <ThingSpeak.h>
 
 #include "ThingspeakComm.h"
+#include "Connection.h"
 
 ThingspeakComm::ThingspeakComm()
 {
@@ -44,11 +45,15 @@ bool ThingspeakComm::Initialize()
 }
 
 //
-//
-//
+// Write()
+// Writes data out to the thingspeak channel
 //
 bool ThingspeakComm::Write(int Field, int Data)
 {
     ThingSpeak.setField(Field, Data);
-    ThingSpeak.writeFields(m_ChannelNumber, m_APIKey.c_str());
+    if (ThingSpeak.writeFields(m_ChannelNumber, m_APIKey.c_str()) != 200)
+    {
+        return false;
+    }
+    return true;
 }
