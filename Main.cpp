@@ -164,7 +164,7 @@ static bool SendMessage(Connection *Connector, WiFiClient *Client)
 		//Serial.printf("Logged into Server");
 	}
 
-	if (!Sender.Send("eightytwosixtysixtest@gmail.com", "colonelschafer@gmail.com", Message))
+	if (!Sender.Send("eightytwosixtysixtest@gmail.com", "test@gmail.com", Message))
 	{
 		//Serial.println("Could not send message");
 		// Will show a red light if message failed
