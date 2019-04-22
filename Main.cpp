@@ -1,7 +1,12 @@
 
 #include <ESP8266WiFi.h>
-#include <Adafruit_NeoPixel.h>
 #include <Arduino.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+#include <Adafruit_MPR121.h>
+#include <Adafruit_NeoPixel.h>
 
 #include "Connection.h"
 #include "SendMessage.h"
@@ -9,25 +14,27 @@
 
 ADC_MODE(ADC_VCC); // To read voltage level
 
-static const char *SSID = "";		// SSID of your WiFi Network.
-static const char *Password = "!";		// Password of your WiFi Network.
+static const char *SSID = "AirVandalGuest";		// SSID of your WiFi Network.
+static const char *Password = "GoVandals!";		// Password of your WiFi Network.
 static const char *Server = "mail.smtp2go.com"; // The SMTP Server
-static const char *APIKey = "3";				// Thingspeak API Key
+static const char *APIKey = "MT51C6IBVCS0TS5Z"; // Thingspeak API Key
 
 // Base64 encoded credentials
-static const char *Username = "=";
-static const char *UserPassword = "=";
+static const char *Username = "Y29sb25lbHNjaGFmZXI=";
+static const char *UserPassword = "QWJjXjIxMF8xMjA=";
 
-static const int NeoPixelPin = 4;
-static const int SwitchBlueLed = 5;   // Pin for the
-static const int StatusLed = 2;		  // Will shine if there is any error with connection or sending
-static const int ShineInterval = 400; // ms that a led will be lit for
-static const int LedCount = 1;		  // Number of visible led units
-static const int ChannelNumber = 2;   // Thingspeak Channel number
-static const int SleepTime = 1800;	// 30 min
+static const int SeaLevelPressureHPA = 1013.25; // Const for sealevel pressure
+static const int SensorPin = 12;
+static const int BoostPin = 13;			 // Pin
+static const int MotorPin = 14;			 // Pin where the motor is connected
+static const int StatusLed = 15;		 // Will shine if there is any error with connection or sending
+static const int ShineInterval = 400;	// ms that a led will be lit for
+static const int LedCount = 1;			 // Number of visible led units
+static const int ChannelNumber = 749322; // Thingspeak Channel number
+//static const int SleepTime = 1800;	// 30 min
+static const int SleepTime = 15; // 15 seconds
 
-static Adafruit_NeoPixel Pixels = Adafruit_NeoPixel(LedCount, NeoPixelPin, NEO_RGB + NEO_KHZ800);
-
+static Adafruit_NeoPixel Pixels = Adafruit_NeoPixel(LedCount, StatusLed, NEO_RGB + NEO_KHZ800);
 static const int Red = Pixels.Color(255, 0, 0);
 static const int Blue = Pixels.Color(0, 0, 255);
 static const int Green = Pixels.Color(0, 255, 0);
@@ -39,18 +46,22 @@ static bool SendMessage(Connection *Connector, WiFiClient *Client);
 static bool IsWaterLow() { return false; }	// Temp function
 static int GetWaterLevel() { return 100; }	// Temp function
 static bool CheckMoisture() { return false; } // Temp Function
-//static bool
+static bool InitModules(Adafruit_BME280 *BME, Adafruit_MPR121 *CapDevice);
+static void PrintBatteryStatus();
+static void Sleep(Adafruit_BME280 *BME, Adafruit_MPR121 *Cap);
+static void SetUpPins();
+static void HandleCapDevice(Adafruit_MPR121 *Cap);
 
 void setup()
 {
-	// Local variables
+	SetUpPins(); // Init pins for the connected devices
 	WiFiClient Client;
-
-	// Init our connection class
-	Connection Connector(SSID, Password, &Client, 2525);
-	// Init our thingspeak class
-	ThingspeakComm TSChannel(&Connector, ChannelNumber, APIKey);
-	TSChannel.Initialize();
+	Connection Connector(SSID, Password, &Client, 2525);		 // Init our connection class
+	ThingspeakComm TSChannel(&Connector, ChannelNumber, APIKey); // Init our thingspeak class
+	Adafruit_BME280 TempDevice;									 // Temp, humidity device
+	Adafruit_MPR121 CapDevice = Adafruit_MPR121();				 // Cap. Sensors
+	Pixels.begin();
+	int Count = 0;
 
 	// Connect to wifi on startup
 	if (!Connect(&Connector, &Client))
@@ -58,17 +69,21 @@ void setup()
 		Serial.println("\nCould not connect to WiFi");
 		return;
 	}
-	else
-	{
-		Serial.println("\nConnected to WiFi");
-	}
+
+	if (!InitModules(&TempDevice, &CapDevice)) // init our sensors and devices
+		return;
+	if (!TSChannel.Initialize()) // Since we have connect, init our channel
+		return;
+
+	delay(2000);
 
 	// Main process loop
 	while (true)
 	{
+		// Handle any input from the capacitor device
+		HandleCapDevice(&CapDevice);
 
 		// Check current water level
-		// 		If it is low, then send an email notif
 		if (IsWaterLow())
 		{
 			Serial.println("Attempting To Send a Message...");
@@ -81,14 +96,12 @@ void setup()
 		}
 
 		// Store the recently read water level into thingspeak
-		TSChannel.Write(1, GetWaterLevel());
+		if (!TSChannel.Write(1, GetWaterLevel()))
+		{
+			Serial.printf("failed to update channel\n");
+		}
 
-		// Get the battery voltage,
-		// Can also put to thingspeak, but the channel
-		// and the lambda function are not set up for it
-		double battVolt = ESP.getVcc();
-		Serial.println("Battery voltage is:");
-		Serial.println(battVolt);
+		PrintBatteryStatus(); // Print data about the battery
 
 		// Check moisture level
 		if (CheckMoisture())
@@ -96,13 +109,24 @@ void setup()
 			// Water device
 		}
 
-		// Otherwise sleep for X Seconds
-		ESP.deepSleep(SleepTime * 1000000);
+		//Sleep(&TempDevice, &CapDevice);
+
+		delay(20);
 	}
 }
 
 void loop()
 {
+}
+
+static void SetUpPins()
+{
+	pinMode(SensorPin, OUTPUT);
+	pinMode(BoostPin, OUTPUT);
+	pinMode(MotorPin, OUTPUT);
+	digitalWrite(SensorPin, LOW);
+	delay(1000);
+	digitalWrite(SensorPin, HIGH);
 }
 
 bool Connect(Connection *Connector, WiFiClient *Client)
@@ -126,7 +150,7 @@ bool Connect(Connection *Connector, WiFiClient *Client)
 	return true;
 }
 
-static bool SendMessage(Connection *Connector, WiFiClient *Client)
+bool SendMessage(Connection *Connector, WiFiClient *Client)
 {
 	// Attempt to connect to the host server
 	if (!Connector->ConnectToHost(Server))
@@ -164,7 +188,7 @@ static bool SendMessage(Connection *Connector, WiFiClient *Client)
 		//Serial.printf("Logged into Server");
 	}
 
-	if (!Sender.Send("eightytwosixtysixtest@gmail.com", "test@gmail.com", Message))
+	if (!Sender.Send("eightytwosixtysixtest@gmail.com", "colonelschafer@gmail.com", Message))
 	{
 		//Serial.println("Could not send message");
 		// Will show a red light if message failed
@@ -181,4 +205,84 @@ static bool SendMessage(Connection *Connector, WiFiClient *Client)
 	}
 
 	return true;
+}
+
+void PrintBatteryStatus()
+{
+	// Get the battery voltage,
+	// Can also put to thingspeak, but the channel
+	// and the lambda function are not set up for it
+	float battVolt = ESP.getVcc();
+	Serial.printf("Battery voltage is: %f \n", battVolt);
+}
+
+bool InitModules(Adafruit_BME280 *BME, Adafruit_MPR121 *CapDevice)
+{
+	bool status;
+
+	// Attempt to find the Cap Device
+	// Default address is 0x5A, if tied to 3.3V its 0x5B
+	// If tied to SDA its 0x5C and if SCL then 0x5D
+	if (!CapDevice->begin(0x5A))
+	{
+		Serial.println("MPR121 not found, check wiring?");
+		return false;
+	}
+	Serial.println("MPR121 found!");
+
+	// Attempt to find the BME device
+
+	if (!BME->begin())
+	{
+		Serial.println("Could not find a valid BME280 sensor, check wiring!");
+		return false;
+	}
+	Serial.println("BME found");
+
+	return true;
+}
+
+void Sleep(Adafruit_BME280 *BME, Adafruit_MPR121 *Cap)
+{
+	// Power down modules
+	//BME->write8()
+	//Cap->
+
+	// Send the main device into a sleep mode
+	ESP.deepSleep(SleepTime * 10);
+}
+
+static void HandleCapDevice(Adafruit_MPR121 *Cap)
+{
+	static uint16_t LastTouch = 0;
+	static uint16_t CurrTouch = 0;
+
+	// Get the currently touched pads
+	CurrTouch = Cap->touched();
+
+	for (uint8_t i = 0; i < 12; i++)
+	{
+		// it if *is* touched and *wasnt* touched before, alert!
+		if ((CurrTouch & _BV(i)) && !(LastTouch & _BV(i)))
+		{
+			Serial.print(i);
+			Serial.printf("%d touched", i);
+			digitalWrite(BoostPin, HIGH);
+			delay(50);
+			digitalWrite(MotorPin, HIGH);
+			Pixels.setPixelColor(0, Green);
+		}
+		// if it *was* touched and now *isnt*, alert!
+		if (!(CurrTouch & _BV(i)) && (LastTouch & _BV(i)))
+		{
+			Serial.print(i);
+			Serial.printf("%d released", i);
+			digitalWrite(MotorPin, LOW);
+			digitalWrite(BoostPin, LOW);
+			Pixels.setPixelColor(0, Yellow);
+		}
+	}
+	// reset our state
+	LastTouch = CurrTouch;
+	Pixels.show();
 }
