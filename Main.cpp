@@ -9,8 +9,8 @@
 
 ADC_MODE(ADC_VCC); // To read voltage level
 
-static const char *SSID = "AirVandalGuest";		// SSID of your WiFi Network.
-static const char *Password = "GoVandals!";		// Password of your WiFi Network.
+static const char *SSID = "";		// SSID of your WiFi Network.
+static const char *Password = "!";		// Password of your WiFi Network.
 static const char *Server = "mail.smtp2go.com"; // The SMTP Server
 static const char *APIKey = "3";				// Thingspeak API Key
 
