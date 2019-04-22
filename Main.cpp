@@ -15,8 +15,8 @@ static const char *Server = "mail.smtp2go.com"; // The SMTP Server
 static const char *APIKey = "3";				// Thingspeak API Key
 
 // Base64 encoded credentials
-static const char *Username = "Y29sb25lbHNjaGFmZXI=";
-static const char *UserPassword = "QWJjXjIxMF8xMjA=";
+static const char *Username = "=";
+static const char *UserPassword = "=";
 
 static const int NeoPixelPin = 4;
 static const int SwitchBlueLed = 5;   // Pin for the
