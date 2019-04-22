@@ -14,14 +14,14 @@
 
 ADC_MODE(ADC_VCC); // To read voltage level
 
-static const char *SSID = "AirVandalGuest";		// SSID of your WiFi Network.
-static const char *Password = "GoVandals!";		// Password of your WiFi Network.
+static const char *SSID = "";		// SSID of your WiFi Network.
+static const char *Password = "";		// Password of your WiFi Network.
 static const char *Server = "mail.smtp2go.com"; // The SMTP Server
-static const char *APIKey = "MT51C6IBVCS0TS5Z"; // Thingspeak API Key
+static const char *APIKey = ""; // Thingspeak API Key
 
 // Base64 encoded credentials
-static const char *Username = "Y29sb25lbHNjaGFmZXI=";
-static const char *UserPassword = "QWJjXjIxMF8xMjA=";
+static const char *Username = "";
+static const char *UserPassword = "";
 
 static const int SeaLevelPressureHPA = 1013.25; // Const for sealevel pressure
 static const int SensorPin = 12;
@@ -30,7 +30,7 @@ static const int MotorPin = 14;			 // Pin where the motor is connected
 static const int StatusLed = 15;		 // Will shine if there is any error with connection or sending
 static const int ShineInterval = 400;	// ms that a led will be lit for
 static const int LedCount = 1;			 // Number of visible led units
-static const int ChannelNumber = 749322; // Thingspeak Channel number
+static const int ChannelNumber = ; // Thingspeak Channel number
 //static const int SleepTime = 1800;	// 30 min
 static const int SleepTime = 15; // 15 seconds
 
